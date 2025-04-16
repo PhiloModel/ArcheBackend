@@ -1,6 +1,6 @@
 from fastapi import FastAPI
-from app.routers import items, users
-from app.database import engine, Base
+from app.routers import items, users, auth
+from app.database import bucket, db
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv, find_dotenv
 import sys
@@ -10,7 +10,7 @@ sys.path.append(r"C:\Users\kubak\Desktop\PhiloModel\github\AgoraRAG")
 from app.routers import chatbot  # import routera chat
 
 # Tworzenie tabel w bazie danych
-Base.metadata.create_all(bind=engine)
+#Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
@@ -28,6 +28,9 @@ app.add_middleware(
     allow_methods=["*"],  # Dozwolone metody, np. ["GET", "POST", "OPTIONS"]
     allow_headers=["*"],  # Dozwolone nagłówki
 )
+
+# Dołaczanie routera autoryzacji
+app.include_router(auth.router)
 
 # Dołączanie routerów
 app.include_router(users.router)

@@ -1,10 +1,13 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel
 import sys
 import os 
 from fastapi import UploadFile, File, Form
 from fastapi.responses import JSONResponse
 import shutil
+import json
+from app.database import bucket, db
+import uuid
 
 sys.path.append(r"C:\Users\kubak\Desktop\PhiloModel\github\AgoraRAG")
 from my_code.load_models.load_rag import load_rag_based_on_pdfs, load_saved_rag_model
@@ -81,21 +84,31 @@ async def chat_endpoint(request: ChatRequest):
     
     return ChatResponse(reply=reply_message)
 
-
 class RAGListResponse(BaseModel):
     names: list[str]
 
-def get_folder_names(path):
-    return [name for name in os.listdir(path) if os.path.isdir(os.path.join(path, name))]
-
-# Pobieranie dostępnych RAGów
-@router.get("/list", response_model=RAGListResponse)
+@router.get("/list_rags", response_model=RAGListResponse)
 async def get_rag_list():
-    folders = get_folder_names(f'docs/chroma/')
-    return RAGListResponse(names=folders)
+
+    prefix = "uploaded_pdfs/"
+    delimiter = "/"
+    blobs = bucket.list_blobs(prefix=prefix)
+ 
+    # Używamy setu do przechowywania unikalnych nazw folderów
+    folder_names = set()
+    for blob in blobs:
+        # Pomijamy same foldery (które kończą się na '/')
+        if blob.name.endswith("/"):
+            continue
+        # Usuwamy prefix i uzyskujemy nazwę folderu
+        parts = blob.name[len(prefix):].split("/")
+        if parts:
+            folder_names.add(parts[0])
+
+    return RAGListResponse(names=sorted(folder_names))
 
 
-@router.post("/upload_pdfs")
+@router.post("/create_rag")
 async def upload_files(
     rag_name: str = Form(...),
     files: list[UploadFile] = File(...)
@@ -113,9 +126,39 @@ async def upload_files(
 
     print("Creating RAG!")
     print(upload_dir)
+
     # Tworzenie PhiloBota
     chat_bot_RAG.create_model(upload_dir, rag_name)
 
     reply_message = f"Utworzyłem RAG na podstawie folderu: {upload_dir}"
 
     return {"reply": reply_message}
+
+@router.post("/upload_pdfs")
+async def upload_files(
+    rag_name: str = Form(...),
+    files: list[UploadFile] = File(...)
+):
+    try:
+        uploaded_files = []
+
+        for file in files:
+            # Generowanie unikalnej nazwy pliku
+            unique_filename = f"{uuid.uuid4()}_{file.filename}"
+            blob_path = f"uploaded_pdfs/{rag_name}/{unique_filename}"
+            blob = bucket.blob(blob_path)
+
+            # Przesyłanie pliku do Firebase Storage
+            blob.upload_from_file(file.file, content_type=file.content_type)
+
+            # Opcjonalnie: Ustawienie pliku jako publicznego
+            # blob.make_public()
+            # download_url = blob.public_url
+
+            uploaded_files.append(blob_path)
+
+        reply_message = f"Załadowano {len(uploaded_files)} plików do modelu '{rag_name}'."
+        return {"reply": reply_message, "files": uploaded_files}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Błąd podczas przesyłania plików: {str(e)}")

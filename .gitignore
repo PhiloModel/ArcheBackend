@@ -14,6 +14,8 @@ app/.env
 uploaded_rags/
 databases/
 docs/
+tmp/
+
 
 # Distribution / packaging
 .Python

@@ -32,7 +32,7 @@ class ChatBotRAG():
 
     def create_model(self, docs_dir_path, RAG_name):
         self.model_name = RAG_name
-
+        print('CREATING MODEl ++++++++++++++')
         self.model = load_rag_based_on_pdfs(docs_dir_path, RAG_name)
 
     def get_response(self, query):
@@ -56,7 +56,6 @@ class ChatResponse(BaseModel):
 class ChatbotRequest(BaseModel):
     dir_path: str
     rag_name: str
-
 
 @router.post("/load", response_model=ChatResponse)
 async def chat_endpoint(request: ChatbotRequest):
@@ -87,10 +86,11 @@ async def chat_endpoint(request: ChatRequest):
 class RAGListResponse(BaseModel):
     names: list[str]
 
+
 @router.get("/list_rags", response_model=RAGListResponse)
 async def get_rag_list():
 
-    prefix = "uploaded_pdfs/"
+    prefix = "rags/"
     delimiter = "/"
     blobs = bucket.list_blobs(prefix=prefix)
  
@@ -100,37 +100,43 @@ async def get_rag_list():
         # Pomijamy same foldery (które kończą się na '/')
         if blob.name.endswith("/"):
             continue
+
         # Usuwamy prefix i uzyskujemy nazwę folderu
         parts = blob.name[len(prefix):].split("/")
+
         if parts:
             folder_names.add(parts[0])
 
     return RAGListResponse(names=sorted(folder_names))
 
+from app.routers.files import delete_all_pdfs_local
 
 @router.post("/create_rag")
-async def upload_files(
+async def create_rag(
     rag_name: str = Form(...),
-    files: list[UploadFile] = File(...)
+    selected_model: str = Form(...)
 ):
-    upload_dir = f"uploaded_rags/{rag_name}/"
-    os.makedirs(upload_dir, exist_ok=True)
+    local_temp_dir = f"./tmp/{selected_model}/"
 
-    for file in files:
-        file_path = os.path.join(upload_dir, file.filename)
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+    # Tworzenie PhiloBota na podstawie pobranych plików
+    chat_bot_RAG.create_model(local_temp_dir, rag_name)
 
-    # Można tutaj utworzyć ChatBotRAG na podstawie upload_dir
-    reply_message = f"Załadowano {len(files)} plików do modelu '{rag_name}'."
+    # Ścieżka do stworzonej bazy wektorowej
+    vectordb_path = f"docs/chroma/{rag_name}/"
 
-    print("Creating RAG!")
-    print(upload_dir)
+    # Wysłanie plików do Firebase Storage
+    for root, _, files in os.walk(vectordb_path):
+        for file in files:
+            local_path = os.path.join(root, file)
+            remote_path = os.path.join("rags", rag_name, os.path.relpath(local_path, vectordb_path))
+            blob = bucket.blob(remote_path)
+            blob.upload_from_filename(local_path)
 
-    # Tworzenie PhiloBota
-    chat_bot_RAG.create_model(upload_dir, rag_name)
+    reply_message = f"Utworzono RAG na podstawie plików z Firebase Storage dla: {rag_name}"
 
-    reply_message = f"Utworzyłem RAG na podstawie folderu: {upload_dir}"
+    delete_all_pdfs_local(temp_dir="tmp")
+
+    delete_all_pdfs_local(temp_dir="docs")
 
     return {"reply": reply_message}
 

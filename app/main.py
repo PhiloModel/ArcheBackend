@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.routers import items, users, auth
+from app.routers import items, users, auth, files
 from app.database import bucket, db
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv, find_dotenv
@@ -38,6 +38,9 @@ app.include_router(items.router)
 
 # Dołączenie routera chat
 app.include_router(chatbot.router)
+
+# Dołączenie routera chat
+app.include_router(files.router)
 
 @app.get("/")
 async def root():

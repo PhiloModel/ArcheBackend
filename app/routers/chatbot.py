@@ -8,8 +8,14 @@ import shutil
 import json
 from app.database import bucket, db
 import uuid
+from pathlib import Path
 
-sys.path.append(r"C:\Users\kubak\Desktop\PhiloModel\github\AgoraRAG")
+# Dynamically resolve the path
+agora_rag_path = Path("/Users/kubak/Desktop/PhiloBot/github/AgoraRAG").resolve()
+
+# Add the resolved path to sys.path
+sys.path.append(str(agora_rag_path))
+
 from my_code.load_models.load_rag import load_rag_based_on_pdfs, load_saved_rag_model
 
 router = APIRouter(
@@ -32,11 +38,9 @@ class ChatBotRAG():
 
     def create_model(self, docs_dir_path, RAG_name):
         self.model_name = RAG_name
-        print('CREATING MODEl ++++++++++++++')
         self.model = load_rag_based_on_pdfs(docs_dir_path, RAG_name)
 
     def get_response(self, query):
-
         result = self.model({"question": query})
 
         return result['answer']
@@ -91,7 +95,8 @@ class RAGListResponse(BaseModel):
 async def get_rag_list():
 
     prefix = "rags/"
-    delimiter = "/"
+
+    # Pobieramy listę wszystkich plików w Firebase Storage z prefiksem "rags/"
     blobs = bucket.list_blobs(prefix=prefix)
  
     # Używamy setu do przechowywania unikalnych nazw folderów
@@ -156,10 +161,6 @@ async def upload_files(
 
             # Przesyłanie pliku do Firebase Storage
             blob.upload_from_file(file.file, content_type=file.content_type)
-
-            # Opcjonalnie: Ustawienie pliku jako publicznego
-            # blob.make_public()
-            # download_url = blob.public_url
 
             uploaded_files.append(blob_path)
 

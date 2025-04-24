@@ -1,28 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app import crud, models, schemas, database
+from app.database import bucket, db
 
 router = APIRouter(
     prefix="/users",
     tags=["users"],
 )
 
-def get_db():
-    db = database.SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+def get_user_by_email(email: str):
+    print("++++++++++get_user_by_email")
+    users_ref = db.collection("users")
+    query = users_ref.where("email", "==", email).stream()
+    return [doc.to_dict() for doc in query]
 
-@router.post("/", response_model=schemas.User)
-def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    db_user = crud.get_user_by_email(db, email=user.email)
-    if db_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    return crud.create_user(db=db, user=user)
-
-
-@router.get("/", response_model=list[schemas.User])
-def read_users(skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
-    users = crud.get_users(db, skip=skip, limit=limit)
-    return users
+def create_new_user(email: str):
+    print("++++++++create_new_user")
+    users_ref = db.collection("users")
+    users_ref.add({"email": email})

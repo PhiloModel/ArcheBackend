@@ -12,17 +12,14 @@ cred = credentials.Certificate(SERVICE_ACCOUNT_KEY_PATH)
 # Inicjalizacja aplikacji Firebase
 firebase_admin.initialize_app(cred, {
     'storageBucket': 'philo-bot.firebasestorage.app',
-    "project_id": "philo-bot"
+    "project_id": "philo-bot",
+    'databaseURL': 'https://philo-bot.firebaseio.com'#,
+    #'firestoreDatabase': 'philo-bot-userdatabase'
 })
 
 bucket = storage.bucket() # Pobranie referencji do bucketu Cloud Storage
 
 db = firestore.client() # Pobranie referencji do Cloud Firestore
-
-users_ref = db.collection()
-docs = users_ref.stream()
-for doc in docs:
-    print(f"{doc.id} => {doc.to_dict()}")
 
 def get_db():
     return db

@@ -145,27 +145,3 @@ async def create_rag(
 
     return {"reply": reply_message}
 
-@router.post("/upload_pdfs")
-async def upload_files(
-    rag_name: str = Form(...),
-    files: list[UploadFile] = File(...)
-):
-    try:
-        uploaded_files = []
-
-        for file in files:
-            # Generowanie unikalnej nazwy pliku
-            unique_filename = f"{uuid.uuid4()}_{file.filename}"
-            blob_path = f"uploaded_pdfs/{rag_name}/{unique_filename}"
-            blob = bucket.blob(blob_path)
-
-            # Przesyłanie pliku do Firebase Storage
-            blob.upload_from_file(file.file, content_type=file.content_type)
-
-            uploaded_files.append(blob_path)
-
-        reply_message = f"Załadowano {len(uploaded_files)} plików do modelu '{rag_name}'."
-        return {"reply": reply_message, "files": uploaded_files}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Błąd podczas przesyłania plików: {str(e)}")

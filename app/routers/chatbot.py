@@ -28,30 +28,84 @@ router = APIRouter(
 )
 
 class ChatBotRAG():
-    model_name : str
-    model = None 
+    rag_model_name : str
+    rag_model = None 
+    basic_model = None
 
     def __init__(self, model_name="PhiloBot"):
-        self.model_name = model_name
-
+        self.rag_model_name = model_name
+     
     def load_model(self, RAG_name):
         persist_directory = f'docs/chroma/{RAG_name}'
-        self.model_name = RAG_name
+        self.rag_model_name = RAG_name
 
-        self.model = load_saved_rag_model(persist_directory)
+        self.rag_model = load_saved_rag_model(persist_directory)
 
     def create_model(self, docs_dir_path, RAG_name):
-        self.model_name = RAG_name
-        self.model = load_rag_based_on_pdfs(docs_dir_path, RAG_name)
+        self.rag_model_name = RAG_name
+        self.rag_model = load_rag_based_on_pdfs(docs_dir_path, RAG_name)
 
-    def get_response(self, query):
-        result = self.model({"question": query})
+    async def get_response(self, query):
+        import asyncio
+        # Check if rag is laoded
+        if self.rag_model is not None:
+            result = self.rag_model({"question": query})
+            result = result['answer']
+        else: # Use basic api model without api
+            
+            from my_code.llm_api.groq_api import groq_query
+            
+            if self.basic_model is None:
+                result, chat_history = await groq_query(query, model='llama3-70b-8192')
+            else:
+                result, chat_history = await groq_query(query, model=self.basic_model)
 
-        return result['answer']
+        return result
+    
+    def get_api_list(self):
+        # Check if rag is laoded
+        groq_models = [
+    {
+        "name": "Llama 3.3 70B Versatile",
+        "model_id": "llama-3.3-70b-versatile",
+        "description": "Uniwersalny model o wysokiej wydajności, odpowiedni do szerokiego zakresu zadań językowych."
+    },
+    {
+        "name": "Llama 3.1 70B Tool Use (Preview)",
+        "model_id": "llama3-groq-70b-8192-tool-use-preview",
+        "description": "Model zoptymalizowany do obsługi wywołań funkcji i integracji z narzędziami."
+    },
+    {
+        "name": "Llama 3.1 8B Tool Use (Preview)",
+        "model_id": "llama3-groq-8b-8192-tool-use-preview",
+        "description": "Lżejsza wersja modelu 70B, również zoptymalizowana do wywołań funkcji."
+    },
+    {
+        "name": "Llama 3.0 70B",
+        "model_id": "llama3-70b-8192",
+        "description": "Duży model językowy do ogólnych zastosowań."
+    },
+    {
+        "name": "Llama 3.0 8B",
+        "model_id": "llama3-8b-8192",
+        "description": "Mniejszy model językowy, odpowiedni dla zastosowań o ograniczonych zasobach."
+    },
+    {
+        "name": "Mixtral 8x7B",
+        "model_id": "mixtral-8x7b-32768",
+        "description": "Model o wysokiej wydajności, osiągający prędkość generowania do 473 tokenów na sekundę."
+    },
+    {
+        "name": "Gemma 7B",
+        "model_id": "gemma-7b-it",
+        "description": "Model o najwyższej prędkości generowania, osiągający 826 tokenów na sekundę."
+    }
+]
+        
+        return groq_models
     
 # Inicjalizacja chatbota
 chat_bot_RAG = ChatBotRAG() 
-
 
 # Model danych dla żądania
 class ChatRequest(BaseModel):
@@ -145,24 +199,22 @@ async def chat_endpoint(
                 break
         
         if not chat_history:
+            from my_code.llm_api.summary_of_query import summarize_query
+
+            chat_name = await summarize_query(request.message)
+
             # Initialize new chat history if not found
             chat_history = {
-                "chat_name": request.chat_name,
+                "chat_name": chat_name,
                 "chat_id": request.chat_id,
                 "messages": []
             }
         
-        # Get response from RAG model
-        if chat_bot_RAG.model is not None:
-            response = chat_bot_RAG.get_response(request.message)
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="RAG model not loaded"
-            )
+        response = await chat_bot_RAG.get_response(request.message)
 
         # Create new messages
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+
         new_messages = [
             {
                 "role": "user",
@@ -473,4 +525,78 @@ async def save_chat_history(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Błąd podczas zapisywania historii czatu: {str(e)}"
+        )
+
+# Add new response model for available models
+class AvailableModelsResponse(BaseModel):
+    models: list[str]
+
+@router.get("/available_models", response_model=AvailableModelsResponse)
+async def get_available_models(current_user: User = Depends(get_current_user)):
+    try:
+        print(f"Fetching available models for user {current_user.email}")
+        
+        # Get list of models from ChatBotRAG
+        available_models = chat_bot_RAG.get_api_list()
+        
+        available_models = [model["name"] for model in available_models]
+        # Sort models by name
+        print(f"Available models: {available_models}")
+        return AvailableModelsResponse(models=available_models)
+
+    except Exception as e:
+        print(f"Error fetching available models: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Błąd podczas pobierania listy modeli: {str(e)}"
+        )
+    
+
+# Add new models
+class SelectModelRequest(BaseModel):
+    model_name: str
+
+class SelectModelResponse(BaseModel):
+    message: str
+    selected_model: str
+
+@router.post("/select_model", response_model=SelectModelResponse)
+async def select_model(request: SelectModelRequest):
+    try:
+        print(f"Setting model to {request.model_name}")
+        
+        # Validate if model exists in available models
+        available_models = chat_bot_RAG.get_api_list()
+        print(f"Available models: {available_models}")
+
+        chosen_model = None
+        for model in available_models:
+            if model["name"] == request.model_name:
+                chosen_model = model["model_id"]
+                break
+        
+        available_models = [model["name"] for model in available_models]
+
+        if request.model_name not in available_models:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Model {request.model_name} not available. Available models: {available_models}"
+            )
+        
+        # Set the model in ChatBotRAG
+        chat_bot_RAG.basic_model = chosen_model
+        
+        print(f"Model set to: {chat_bot_RAG.basic_model}")
+        return SelectModelResponse(
+            message=f"Successfully set model to {request.model_name}",
+            selected_model=request.model_name
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error setting model: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Błąd podczas ustawiania modelu: {str(e)}"
         )

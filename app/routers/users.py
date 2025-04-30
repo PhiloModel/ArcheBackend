@@ -34,7 +34,6 @@ async def create_new_user(email: str):
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/google")
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
-    print('Received token:', token)
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Nie można zweryfikować poświadczeń",
